@@ -1,0 +1,149 @@
+import re
+
+def process_menu_text(text):
+    """
+    Feldolgozza a PDF-ből kinyert teljes szöveget, csoportosítja az ételeket,
+    eltávolítja a duplikátumokat és az árakat.
+    """
+    # Ismert kategóriafejlécek a PDF alapján
+    categories = [
+        "Levesek", "Főzelék", "Chef ajánlat", "Készételek",
+        "Grill sarok ajánlata", "Frissensültek", "Tészták",
+        "Vegetáriánus", "Desszert", "Köretek"
+    ]
+    
+    # Regex a kategóriák megtalálásához (figyelmen kívül hagyva a kis- és nagybetűket)
+    category_regex = re.compile(r"^\s*(" + "|".join(re.escape(cat) for cat in categories) + r")\s*$", re.IGNORECASE)
+    
+    # A végső, rendszerezett adatstruktúra
+    menu = {cat: [] for cat in categories}
+    current_category = None
+
+    lines = text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Ellenőrzi, hogy a sor egy kategóriafejléc-e
+        match = category_regex.match(line)
+        if match:
+            # A kategória nevének normalizálása (pl. "levesek" -> "Levesek")
+            matched_cat = match.group(1)
+            for cat_name in categories:
+                if cat_name.lower() == matched_cat.lower():
+                    current_category = cat_name
+                    break
+            continue
+
+        if current_category:
+            # Árak és felesleges karakterek eltávolítása
+            cleaned_line = re.sub(r'[\s,]*\d{2,}\.-?[\s,]*', ' ', line)
+            cleaned_line = re.sub(r'[\s,]*\d{2,}\s*$', '', cleaned_line)
+            
+            # Több étel egy sorban való kezelése (pl. vesszővel elválasztva)
+            # és a felesleges szavak (pl. kategórianevek) kiszűrése
+            parts = [part.strip() for part in re.split(r',|\s{2,}', cleaned_line) if part.strip()]
+            
+            for item in parts:
+                # További tisztítás
+                item_cleaned = item.replace("  ", " ").strip()
+                # Kiszűrjük a sorokba bekerült kategórianeveket és egyéb felesleges szöveget
+                if item_cleaned and not category_regex.match(item_cleaned) and len(item_cleaned) > 2 and "választható" not in item_cleaned.lower() and "ajánlat" not in item_cleaned.lower():
+                    menu[current_category].append(item_cleaned)
+
+    # Duplikátumok eltávolítása minden kategóriából
+    for category in menu:
+        menu[category] = sorted(list(set(menu[category])))
+
+    return menu
+
+def search_groups(menu_data, keyword):
+    """Keresés a csoportok (kategóriák) nevében."""
+    keyword_lower = keyword.lower()
+    found_groups = [group for group in menu_data.keys() if keyword_lower in group.lower()]
+    return found_groups
+
+def search_content(menu_data, keyword):
+    """Keresés az ételek nevében, kategóriák szerint csoportosítva."""
+    keyword_lower = keyword.lower()
+    results = {}
+    for category, items in menu_data.items():
+        found_items = [item for item in items if keyword_lower in item.lower()]
+        if found_items:
+            results[category] = found_items
+    return results
+
+# --- Futtatás ---
+
+# A feltöltött PDF fájl teljes szöveges tartalmának beolvasása
+# (A valóságban itt egy PDF-olvasó könyvtár (pl. PyPDF2) lenne használva)
+file_content = """
+[A csatolt pdf24_merged-1.pdf teljes szöveges tartalma ide kerülne]
+"""
+# A teljesség igénye nélkül egy releváns részlet a PDF-ből a demonstrációhoz:
+sample_content = """
+Levesek
+Májgaluskaleves 825.-
+Kertészlányleves 650.-
+Nyírségi gombócleves 825.-
+Tojásleves 650.-
+
+Készételek
+Vietnámi zöldséges sertéscsíkok, párolt rizs 2000.-
+Chilis Cheedaros csirkeragu, steak burgonya 2000.-
+Grill kolbász pereccel édesmustárral 2000.-
+Resztelt pulykamáj, párolt rizs 2000.-
+Baconnel camamberttel Grillezett szürkeharcsa filé, kevert saláta 2000.-
+Sült oldalas, burgonyapüré 2000.-
+
+Frissensültek
+Rántott trappista / camambert 1380.-
+Rántott zöldségek 1330.-
+Szotyibundás csirkemell 1380.-
+Rántott trappista / camambert 1380.-
+"""
+
+
+# 1. A szöveg feldolgozása és a menü létrehozása
+# A teljes 'file_content' változóval futtatva az összes oldalt feldolgozná.
+# Most a bemutatóhoz a fenti 'sample_content'-et használjuk.
+rendezett_menu = process_menu_text(sample_content)
+
+# 2. A teljes, rendezett és deduplikált menü megjelenítése
+print("--- Teljes, rendezett és duplikátumoktól mentes menü ---")
+for kategoria, etelek in rendezett_menu.items():
+    if etelek:  # Csak a nem üres kategóriákat jelenítjük meg
+        print(f"\n### {kategoria} ###")
+        for etel in etelek:
+            print(f"- {etel}")
+
+# 3. Keresési funkciók bemutatása
+print("\n\n--- Keresési Funkciók Bemutatása ---")
+
+# a) Keresés a csoport nevére
+print("\nKeresés a 'Leves' szóra a csoportok között:")
+talalt_csoportok = search_groups(rendezett_menu, "Leves")
+print(f"Találatok: {talalt_csoportok}")
+
+# b) Keresés az ételek nevében a "csirke" szóra
+print("\nKeresés a 'csirke' szóra az ételek között:")
+talalt_etelek_csirke = search_content(rendezett_menu, "csirke")
+if talalt_etelek_csirke:
+    for kategoria, etelek in talalt_etelek_csirke.items():
+        print(f"  [{kategoria}]")
+        for etel in etelek:
+            print(f"  - {etel}")
+else:
+    print("Nincs találat a 'csirke' szóra.")
+
+# c) Keresés az ételek nevében a "burgonya" szóra
+print("\nKeresés a 'burgonya' szóra az ételek között:")
+talalt_etelek_burgonya = search_content(rendezett_menu, "burgonya")
+if talalt_etelek_burgonya:
+    for kategoria, etelek in talalt_etelek_burgonya.items():
+        print(f"  [{kategoria}]")
+        for etel in etelek:
+            print(f"  - {etel}")
+else:
+    print("Nincs találat a 'burgonya' szóra.")

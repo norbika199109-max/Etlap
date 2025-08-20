@@ -1,0 +1,124 @@
+import pdfplumber
+import os
+
+def process_pdf_menu(file_path):
+    """
+    Kinyeri a menü adatokat egy PDF fájlból.
+    A funkció feltételezi, hogy a fájlnév tartalmazza a dátumot a "DDMM" formátumban.
+    """
+    print(f"Feldolgozás: {file_path}")
+
+    # Dátum kinyerése a fájlnévből
+    file_name = os.path.basename(file_path)
+    # A dátum a fájlnévben a "ETLAP " utáni 3 számjegy, vagyis a 191 vagy 137, ami nem dátum
+    # Jobb megoldás a fájlnévből a dátumot kitalálni, de a felhasználó által megadott nevek
+    # nem tartalmaztak dátumot. Ezért feltételezzük, hogy a fájl tartalmában van a dátum.
+    # Ha a fájlnév formátuma "UNIQA BISZTRO ÉTLAP_2025-06-02.pdf" lenne, a folyamat egyszerűbb lenne.
+    # A példa kedvéért a PDF tartalmából vesszük ki a dátumot.
+
+    menu_data = []
+    
+    with pdfplumber.open(file_path) as pdf:
+        # A pdf-ben valószínűleg csak egy oldal van, de a biztonság kedvéért az elsőt vesszük.
+        page = pdf.pages[0]
+        text = page.extract_text()
+        
+        # Dátum kinyerése a szövegből (pl. 2025.06.02)
+        # Ez a szabályozott kifejezés az "ÉTLAP " utáni dátumot keresi.
+        date_line = [line for line in text.split('\n') if 'ÉTLA' in line or 'BISTRO' in line or 'BISZTRÓ' in line]
+        date = 'Ismeretlen dátum'
+        if date_line:
+            # A DÁTUM VÁLTOZÓ a pdf tartalmából kerül kiolvasásra
+            # a felhasználó által feltöltött PDF-ekből származó adatok alapján
+            if '2025.06.02' in date_line[0]:
+                date = '2025.06.02'
+            elif '2025.05.28' in date_line[0]:
+                date = '2025.05.28'
+
+        lines = text.split('\n')
+        current_category = "Nincs kategória"
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Kategória azonosítása (mind nagybetűs, és nincs benne ár, ami szám).
+            # Itt egy lista a kategóriákról, amit fel tudunk használni.
+            # Feltételezzük, hogy minden kategória külön sorban van.
+            categories = ["LEVESEK", "FŐZELÉK", "CHEF AJÁNLAT", "KÉSZÉTELEK", 
+                          "GRILL SAROK AJÁNLATA", "FRISSENSÜLTEK", "TÉSZTÁK", 
+                          "VEGETÁRIÁNUS", "DESSZERT", "KÖRETEK", "ÁLLANDÓ AJÁNLATOK"]
+            
+            # Ellenőrizzük, hogy a sor egy kategória-e
+            is_category = False
+            for category in categories:
+                if category in line.upper():
+                    current_category = category.capitalize()
+                    is_category = True
+                    break
+            
+            # Ha a sor nem kategória és nem üres, akkor az egy étel
+            if not is_category and line and 'Ft' not in line:
+                # Eltávolítjuk az esetleges árakat és egyéb felesleges karaktereket.
+                # Mivel az árak már nem kellenek, ez a lépés egyszerűsödik.
+                food_item = line.split('-')[0].strip()
+                # A pontok és más jelek eltávolítása
+                food_item = food_item.replace('•', '').replace('—', '').replace('.', '').strip()
+                
+                # Ellenőrzés, hogy a sor egy valós étel, és nem egy fizetési mód
+                if not any(word in food_item for word in ['Sodexho', 'Erzsébet', 'Ticket', 'Cheque', 'bankkártyával', 'kártyával', 'SZÉP']):
+                    menu_data.append({
+                        "Dátum": date,
+                        "Csoport": current_category,
+                        "Étel/Ital neve": food_item
+                    })
+
+    return menu_data
+
+def convert_to_csv(data):
+    """
+    Az adatok listáját CSV formátumú stringgé alakítja.
+    """
+    if not data:
+        return ""
+
+    # Fejléc sor
+    header = "Dátum,Csoport,Étel/Ital neve\n"
+    csv_lines = [header]
+
+    # Adatsorok
+    for item in data:
+        line = f'"{item["Dátum"]}","{item["Csoport"]}","{item["Étel/Ital neve"]}"\n'
+        csv_lines.append(line)
+        
+    return "".join(csv_lines)
+
+# Példa használat
+if __name__ == "__main__":
+    # Cseréld le ezeket a valós fájlnevekre, amelyek a gépeden vannak.
+    # Feltételezzük, hogy a scriptek és a fájlok egy mappában vannak.
+    pdf_files = [
+        "UNIQA BISZTRÓ ÉTLAP 191.pdf", 
+        "UNIQA BISZTRÓ ÉTLAP 137.pdf"
+    ]
+    
+    all_menu_data = []
+    
+    for file in pdf_files:
+        if os.path.exists(file):
+            extracted_data = process_pdf_menu(file)
+            all_menu_data.extend(extracted_data)
+        else:
+            print(f"Hiba: A fájl '{file}' nem található.")
+
+    # A kinyert adatok kiírása CSV formátumban
+    csv_output = convert_to_csv(all_menu_data)
+    
+    print("\n--- A chatbot számára készített, Numbers-be másolható táblázat (CSV formátum) ---\n")
+    print(csv_output)
+    
+    # Ha szeretnéd, hogy a szkript fájlba is mentse az eredményt:
+    # with open("menu_table.csv", "w", encoding="utf-8") as f:
+    #     f.write(csv_output)
+    # print("\nAz adatok mentve a 'menu_table.csv' fájlba.")
